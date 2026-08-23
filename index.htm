@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=windows-1254">
+    <title>Dörtlük Yazma Programı</title>
+    <style>
+        body { font-family: Tahoma, Geneva, sans-serif; background: #e9ecef; padding: 20px; display: flex; justify-content: center; }
+        .poetry-container { width: 100%; max-width: 700px; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        .archive-section { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6; display: flex; align-items: center; gap: 10px; }
+        .header-section { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+        
+        input[type="text"].poem-title { font-size: 20px; font-weight: bold; border: none; border-bottom: 2px solid #007bff; padding: 5px; outline: none; width: 100%; text-transform: capitalize; }
+        
+        .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+        select, button { padding: 10px 15px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; cursor: pointer; transition: 0.2s; }
+        
+        .btn-save { background: #28a745; color: white; border: none; font-weight: bold; }
+        .btn-delete { background: #6c757d; color: white; border: none; }
+        .btn-new { background: #17a2b8; color: white; border: none; }
+        .btn-clear { background: #dc3545; color: white; border: none; }
+        .btn-compile { background: #6f42c1; color: white; border: none; font-weight: bold; }
+        .btn-paste-menu { background: #ffc107; color: #333; border: none; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+
+        .stanza { border: 1px solid #eee; background: #fafafa; padding: 15px; margin-bottom: 20px; border-radius: 8px; position: relative; }
+        .line-wrapper { position: relative; margin-bottom: 10px; }
+        .mısra-input { 
+            width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #ccc; 
+            border-radius: 6px; outline: none; font-size: 18px; 
+        }
+        .valid { background-color: #d4edda !important; border-color: #28a745 !important; }
+        .invalid { background-color: #f8d7da !important; border-color: #dc3545 !important; }
+        .hece-sayaci { position: absolute; right: 15px; top: 14px; font-size: 12px; color: #999; font-weight: bold; pointer-events: none; }
+
+        /* Modallar */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { background: #fff; padding: 25px; border-radius: 10px; width: 90%; max-width: 500px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .modal-content h3 { margin: 0; color: #333; }
+        .modal-content textarea { width: 100%; height: 200px; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; font-family: Tahoma, Geneva, sans-serif; resize: vertical; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; }
+        .btn-copy { background: #007bff; color: white; border: none; }
+        .btn-close { background: #6c757d; color: white; border: none; }
+        .btn-action-paste { background: #28a745; color: white; border: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="poetry-container">
+    <div class="archive-section">
+        <strong>Arşiv:</strong>
+        <select id="poemArchive" onchange="loadSelectedPoem()" style="flex-grow: 1;">
+            <option value="">-- Kayıtlı Şiir Seçin --</option>
+        </select>
+        <button class="btn-delete" onclick="deleteFromArchive()">Arşivden Sil</button>
+    </div>
+
+    <div class="header-section">
+        <input type="text" id="poemTitle" class="poem-title" placeholder="Şiir Başlığı Giriniz..." onblur="capitalizeTitle(this)">
+        <div class="controls">
+            <strong>Ölçü:</strong>
+            <select id="meterSelect" onchange="refreshAllLines()">
+                <option value="7">7'li</option>
+                <option value="8">8'li</option>
+                <option value="10">10'lu</option>
+                <option value="11">11'li</option>
+                <option value="12" selected>12'li</option>
+                <option value="13">13'lü</option>
+                <option value="14">14'lü</option>
+                <option value="16">16'lı</option>
+            </select>
+            <button id="addStanzaBtn">+ Dörtlük Ekle</button>
+            <button class="btn-compile" onclick="compilePoem()">Derle</button>
+            <button class="btn-paste-menu" onclick="openPasteModal()">Yapıştır</button>
+            <button class="btn-save" onclick="savePoem()">Kaydet</button>
+            <button class="btn-new" onclick="createNewPoem()">Yeni Şiir</button>
+            <button class="btn-clear" onclick="clearCurrent()">Ekranı Temizle</button>
+        </div>
+    </div>
+
+    <div id="mainEditor"></div>
+</div>
+
+<!-- Derleme Modalı -->
+<div id="compileModal" class="modal">
+    <div class="modal-content">
+        <h3>Şiir Metni</h3>
+        <textarea id="compiledTextResult" readonly></textarea>
+        <div class="modal-buttons">
+            <button class="btn-copy" onclick="copyCompiledText()">Kopyala</button>
+            <button class="btn-close" onclick="closeCompileModal()">Kapat</button>
+        </div>
+    </div>
+</div>
+
+<!-- Yapıştırma Modalı -->
+<div id="pasteModal" class="modal">
+    <div class="modal-content">
+        <h3>Şiir Yapıştır</h3>
+        <p style="font-size: 13px; color: #666; margin: 0;">Şiirinizi aşağıya yapıştırın. Dörtlükler boşluklarla ayrılmalıdır.</p>
+        <textarea id="pasteTextarea" placeholder="Mısraları buraya yapıştırın..."></textarea>
+        <div class="modal-buttons">
+            <button class="btn-action-paste" onclick="processPastedPoem()">Yerleştir</button>
+            <button class="btn-close" onclick="closePasteModal()">İptal</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const STORAGE_KEY = "SIIR_ARSIVI_V1";
+    const LAST_POEM_KEY = "SON_CALISILAN_SIIR";
+
+    function capitalizeTitle(element) {
+        let val = element.value.trim();
+        if (val.length > 0) {
+            element.value = val.split(' ')
+                .map(word => word.charAt(0).toLocaleUpperCase('tr-TR') + word.slice(1).toLocaleLowerCase('tr-TR'))
+                .join(' ');
+        }
+    }
+
+    function refreshAllLines() {
+        document.querySelectorAll('.mısra-input').forEach(input => {
+            if (input.value.length > 0) input.oninput();
+        });
+    }
+
+    function calculateSyllables(text) {
+        if (!text) return 0;
+        let words = text.trim().split(/\s+/);
+        let total = 0;
+        words.forEach(word => {
+            let cleanWord = word.replace(/[^aeıioöuüâîûAEIİOÖUÜÂÎÛ]/g, '');
+            total += cleanWord.length;
+        });
+        return total;
+    }
+
+    function applyInputLogic(input, counter) {
+        input.oninput = function() {
+            let text = this.value;
+            if (text.length > 0) {
+                text = text.charAt(0).toLocaleUpperCase('tr-TR') + text.slice(1);
+                this.value = text;
+            }
+            const target = parseInt(document.getElementById('meterSelect').value);
+            const vowels = calculateSyllables(text);
+            counter.innerText = vowels > 0 ? vowels : '';
+            
+            if (text.length === 0) {
+                this.className = 'mısra-input';
+            } else if (vowels === target) {
+                this.className = 'mısra-input valid';
+            } else {
+                this.className = 'mısra-input invalid';
+            }
+        };
+    }
+
+    function addStanza(linesData = ["", "", "", ""]) {
+        const mainEditor = document.getElementById('mainEditor');
+        const stanzaDiv = document.createElement('div');
+        stanzaDiv.className = 'stanza';
+        
+        linesData.forEach((text, i) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'line-wrapper';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'mısra-input';
+            input.value = text;
+            input.placeholder = (i + 1) + '. mısra...';
+            const counter = document.createElement('span');
+            counter.className = 'hece-sayaci';
+            applyInputLogic(input, counter);
+            wrapper.appendChild(input);
+            wrapper.appendChild(counter);
+            stanzaDiv.appendChild(wrapper);
+            if(text) input.oninput();
+        });
+        mainEditor.appendChild(stanzaDiv);
+    }
+
+    function compilePoem() {
+        const title = document.getElementById('poemTitle').value.trim();
+        let outputText = "";
+
+        if (title) {
+            outputText += title.toUpperCase() + "\n\n";
+        }
+
+        const stanzas = document.querySelectorAll('.stanza');
+        stanzas.forEach((stanza, sIndex) => {
+            let stanzaLines = [];
+            stanza.querySelectorAll('.mısra-input').forEach(input => {
+                let val = input.value.trim();
+                if (val) stanzaLines.push(val);
+            });
+
+            if (stanzaLines.length > 0) {
+                outputText += stanzaLines.join("\n") + "\n";
+                if (sIndex < stanzas.length - 1) {
+                    outputText += "\n"; // Dörtlükler arası boşluk
+                }
+            }
+        });
+
+        document.getElementById('compiledTextResult').value = outputText.trim();
+        document.getElementById('compileModal').style.display = 'flex';
+    }
+
+    function closeCompileModal() {
+        document.getElementById('compileModal').style.display = 'none';
+    }
+
+    function openPasteModal() {
+        document.getElementById('pasteTextarea').value = "";
+        document.getElementById('pasteModal').style.display = 'flex';
+    }
+
+    function closePasteModal() {
+        document.getElementById('pasteModal').style.display = 'none';
+    }
+
+// ... script içerisindeki ilgili fonksiyonları bununla değiştir:
+
+function processPastedPoem() {
+        let rawText = document.getElementById('pasteTextarea').value.trim();
+        if (!rawText) {
+            alert("Lütfen yapıştırılacak şiir metnini girin!");
+            return;
+        }
+
+        let lines = rawText.split(/\r?\n/);
+        let allLines = [];
+        let allSyllableCounts = [];
+
+        // Tüm satırları temizle, boş olanları atla ve dolu mısraları sırasıyla topla
+        lines.forEach(line => {
+            let cleanedLine = line.replace(/&nbsp;/gi, '').replace(/\u00A0/g, '').trim();
+            if (cleanedLine !== "") {
+                allLines.push(cleanedLine);
+                allSyllableCounts.push(calculateSyllables(cleanedLine));
+            }
+        });
+
+        if (allLines.length === 0) {
+            alert("Geçerli mısra bulunamadı!");
+            return;
+        }
+
+        // Mutlak olarak mısraları 4'erli gruplara (dörtlüklere) ayır
+        let stanzas = [];
+        for (let i = 0; i < allLines.length; i += 4) {
+            let chunk = allLines.slice(i, i + 4);
+            while (chunk.length < 4) {
+                chunk.push(""); // Son dörtlük eksik kalırsa boş mısra ile tamamla
+            }
+            stanzas.push(chunk);
+        }
+
+        // İstatistiksel hece sayısı (Mod - en sık geçen sayı)
+        let counts = {};
+        allSyllableCounts.forEach(c => counts[c] = (counts[c] || 0) + 1);
+        let maxFreq = 0;
+        let bestSyllableCount = 0;
+        for (let count in counts) {
+            if (counts[count] > maxFreq) {
+                maxFreq = counts[count];
+                bestSyllableCount = parseInt(count);
+            }
+        }
+
+        // 1. Ölçü Seçimini Güncelle
+        const meterSelect = document.getElementById('meterSelect');
+        for (let i = 0; i < meterSelect.options.length; i++) {
+            if (meterSelect.options[i].value == bestSyllableCount) {
+                meterSelect.selectedIndex = i;
+                break;
+            }
+        }
+
+        // 2. Editörü Doldur
+        document.getElementById('mainEditor').innerHTML = "";
+        stanzas.forEach(stanzaLines => {
+            addStanza(stanzaLines);
+        });
+
+        refreshAllLines();
+        closePasteModal();
+        alert("Şiir başarıyla " + stanzas.length + " dörtlük halinde yerleştirildi ve '" + bestSyllableCount + "' hece ölçüsüne ayarlandı.");
+    }
+
+    function copyCompiledText() {
+        const textarea = document.getElementById('compiledTextResult');
+        textarea.select();
+        document.execCommand('copy');
+        alert("Şiir panoya kopyalandı!");
+    }
+
+    function savePoem() {
+        const titleInput = document.getElementById('poemTitle');
+        capitalizeTitle(titleInput);
+        const title = titleInput.value.trim();
+        if (!title) { alert("Lütfen bir başlık girin!"); return; }
+
+        const stanzas = [];
+        document.querySelectorAll('.stanza').forEach(stanza => {
+            const lines = [];
+            stanza.querySelectorAll('.mısra-input').forEach(input => lines.push(input.value));
+            stanzas.push(lines);
+        });
+
+        const poemObj = {
+            title: title,
+            meter: document.getElementById('meterSelect').value,
+            content: stanzas,
+            date: new Date().toISOString()
+        };
+
+        let archive = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        archive[title] = poemObj;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(archive));
+        localStorage.setItem(LAST_POEM_KEY, title);
+        updateArchiveSelect();
+        alert("'" + title + "' arşive kaydedildi.");
+    }
+
+    function deleteFromArchive() {
+        const select = document.getElementById('poemArchive');
+        const title = select.value;
+
+        if (!title) {
+            alert("Lütfen silmek istediğiniz şiiri arşivden seçin.");
+            return;
+        }
+
+        if (confirm("'" + title + "' isimli şiiri arşivden kalıcı olarak silmek istediğinize emin misiniz?")) {
+            let archive = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+            delete archive[title];
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(archive));
+            
+            if (localStorage.getItem(LAST_POEM_KEY) === title) {
+                localStorage.removeItem(LAST_POEM_KEY);
+            }
+
+            updateArchiveSelect();
+            resetEditor();
+            alert("Şiir arşivden silindi.");
+        }
+    }
+
+    function updateArchiveSelect() {
+        const select = document.getElementById('poemArchive');
+        const archive = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        select.innerHTML = '<option value="">-- Kayıtlı Şiir Seçin --</option>';
+        Object.keys(archive).sort().forEach(title => {
+            const opt = document.createElement('option');
+            opt.value = title;
+            opt.innerText = title;
+            select.appendChild(opt);
+        });
+    }
+
+    function loadSelectedPoem() {
+        const title = document.getElementById('poemArchive').value;
+        if(title) loadPoemByTitle(title);
+    }
+
+    function loadPoemByTitle(title) {
+        const archive = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        const poem = archive[title];
+        if (!poem) return;
+
+        document.getElementById('poemTitle').value = poem.title;
+        document.getElementById('meterSelect').value = poem.meter;
+        document.getElementById('mainEditor').innerHTML = "";
+        poem.content.forEach(stanzaLines => addStanza(stanzaLines));
+        localStorage.setItem(LAST_POEM_KEY, title);
+    }
+
+    function resetEditor() {
+        document.getElementById('poemTitle').value = "";
+        document.getElementById('mainEditor').innerHTML = "";
+        addStanza();
+    }
+
+    function createNewPoem() {
+        if(confirm("Yeni şiire geçmek istiyor musunuz?")) {
+            resetEditor();
+            localStorage.removeItem(LAST_POEM_KEY);
+        }
+    }
+
+    function clearCurrent() {
+        if(confirm("Tüm mısraları temizlemek istediğinize emin misiniz?")) {
+            document.querySelectorAll('.mısra-input').forEach(input => {
+                input.value = "";
+                input.className = 'mısra-input';
+                input.parentElement.querySelector('.hece-sayaci').innerText = "";
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('addStanzaBtn').addEventListener('click', () => addStanza());
+        updateArchiveSelect();
+        const lastTitle = localStorage.getItem(LAST_POEM_KEY);
+        if (lastTitle) {
+            loadPoemByTitle(lastTitle);
+        } else {
+            addStanza();
+        }
+    });
+</script>
+
+</body>
+</html>
