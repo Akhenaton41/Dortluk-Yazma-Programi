@@ -3,9 +3,10 @@
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=windows-1254">
     <title>Dörtlük Yazma Programı</title>
+    <script type="text/javascript" src="javascript/turkceKelimeler.js"></script>
     <style>
         body { font-family: Tahoma, Geneva, sans-serif; background: #e9ecef; padding: 20px; display: flex; justify-content: center; }
-        .poetry-container { width: 100%; max-width: 700px; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .poetry-container { width: 100%; max-width: 750px; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         
         .archive-section { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6; display: flex; align-items: center; gap: 10px; }
         .header-section { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
@@ -24,14 +25,25 @@
         button:hover { opacity: 0.9; }
 
         .stanza { border: 1px solid #eee; background: #fafafa; padding: 15px; margin-bottom: 20px; border-radius: 8px; position: relative; }
-        .line-wrapper { position: relative; margin-bottom: 10px; }
+        
+        .stanza-line-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        
+        .line-wrapper { position: relative; flex-grow: 1; }
         .mısra-input { 
-            width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #ccc; 
+            width: 100%; padding: 12px 45px 12px 12px; box-sizing: border-box; border: 1px solid #ccc; 
             border-radius: 6px; outline: none; font-size: 18px; 
         }
         .valid { background-color: #d4edda !important; border-color: #28a745 !important; }
         .invalid { background-color: #f8d7da !important; border-color: #dc3545 !important; }
-        .hece-sayaci { position: absolute; right: 15px; top: 14px; font-size: 12px; color: #999; font-weight: bold; pointer-events: none; }
+        
+        .hece-sayaci { position: absolute; right: 15px; top: 14px; font-size: 12px; color: #777; font-weight: bold; pointer-events: none; }
+        
+        .kafiye-etiketi { 
+            font-size: 16px; font-weight: bold; color: #6f42c1; background: #e9ecef; 
+            min-width: 32px; height: 32px; border-radius: 50%; display: flex; 
+            align-items: center; justify-content: center; border: 1px solid #ced4da; 
+            flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
 
         /* Modallar */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
@@ -77,6 +89,13 @@
             <button class="btn-clear" onclick="clearCurrent()">Ekranı Temizle</button>
         </div>
     </div>
+
+<!-- Kafiye Arama Paneli -->
+<div id="kafiyeAramaPaneli" style="margin-bottom: 15px; padding: 10px; background-color: #f5f5f5; border: 1px solid #ccc;">
+    <label for="kafiyeInput">Kafiye Aranan Kelime: </label>
+    <input type="text" id="kafiyeInput" style="padding: 5px; width: 200px;">
+    <button type="button" onclick="kafiyeAraVeGoster()" style="padding: 5px 10px; cursor: pointer;">Kafiye Ara</button>
+</div>
 
     <div id="mainEditor"></div>
 </div>
@@ -127,33 +146,102 @@
 
     function calculateSyllables(text) {
         if (!text) return 0;
+        const vowels = text.match(/[aeıioöuüâîûAEIİOÖUÜÂÎÛ]/g);
+        return vowels ? vowels.length : 0;
+    }
+
+    // Sesli ve şapkalı harfleri tek bir joker sesliye ("V") dönüştürür
+    function normalizeVowels(text) {
+        if (!text) return "";
+        return text.toLowerCase()
+            .replace(/[aeıioöuüâîû]/g, 'V')
+            .replace(/[^a-zçğıöşuüV]/g, '');
+    }
+
+    // Mısra sonundaki kelimenin şablonunu (sesli/sessiz yapısını) yakalar
+    function getRhymeEnding(text) {
+        if (!text) return "";
         let words = text.trim().split(/\s+/);
-        let total = 0;
-        words.forEach(word => {
-            let cleanWord = word.replace(/[^aeıioöuüâîûAEIİOÖUÜÂÎÛ]/g, '');
-            total += cleanWord.length;
+        let lastWord = words[words.length - 1];
+        
+        let normalized = normalizeVowels(lastWord);
+        if (!normalized) return "";
+
+        return normalized.length >= 3 ? normalized.slice(-3) : normalized;
+    }
+
+    // İki mısra sonunun kafiye yapısının eşleşip eşleşmediğini kontrol eder
+    function isRhymeMatch(key1, key2) {
+        if (!key1 || !key2) return false;
+        
+        if (key1 === key2) return true;
+        
+        if (key1.length >= 2 && key2.length >= 2 && key1.slice(-2) === key2.slice(-2)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // Şiirin tamamını baştan sona kontörlü biçimde A, B, C, D... olarak etiketler
+    function updateAllPoemRhymes() {
+        const allInputs = document.querySelectorAll('.mısra-input');
+        const allBadges = document.querySelectorAll('.kafiye-etiketi');
+        const alphabet = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "R", "S", "T", "U", "V", "Y", "Z"];
+        
+        let rhymeGroups = [];
+        let letterIndex = 0;
+
+        allInputs.forEach((input, index) => {
+            let ending = getRhymeEnding(input.value);
+            let badge = allBadges[index];
+
+            if (!ending) {
+                if (badge) badge.innerText = "";
+                return;
+            }
+
+            let existingGroup = rhymeGroups.find(group => isRhymeMatch(group.key, ending));
+
+            if (existingGroup) {
+                if (badge) badge.innerText = existingGroup.letter;
+            } else {
+                let nextLetter = alphabet[letterIndex % alphabet.length];
+                rhymeGroups.push({ key: ending, letter: nextLetter });
+                if (badge) badge.innerText = nextLetter;
+                letterIndex++;
+            }
         });
-        return total;
     }
 
     function applyInputLogic(input, counter) {
         input.oninput = function() {
             let text = this.value;
             if (text.length > 0) {
-                text = text.charAt(0).toLocaleUpperCase('tr-TR') + text.slice(1);
-                this.value = text;
+                let start = this.selectionStart;
+                let end = this.selectionEnd;
+
+                let newText = text.charAt(0).toLocaleUpperCase('tr-TR') + text.slice(1);
+
+                if (this.value !== newText) {
+                    this.value = newText;
+                    this.setSelectionRange(start, end);
+                }
             }
+
             const target = parseInt(document.getElementById('meterSelect').value);
-            const vowels = calculateSyllables(text);
+            const vowels = calculateSyllables(this.value);
             counter.innerText = vowels > 0 ? vowels : '';
             
-            if (text.length === 0) {
+            if (this.value.length === 0) {
                 this.className = 'mısra-input';
             } else if (vowels === target) {
                 this.className = 'mısra-input valid';
             } else {
                 this.className = 'mısra-input invalid';
             }
+
+            updateAllPoemRhymes();
         };
     }
 
@@ -163,22 +251,39 @@
         stanzaDiv.className = 'stanza';
         
         linesData.forEach((text, i) => {
+            const lineRow = document.createElement('div');
+            lineRow.className = 'stanza-line-row';
+
             const wrapper = document.createElement('div');
             wrapper.className = 'line-wrapper';
+            
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'mısra-input';
             input.value = text;
             input.placeholder = (i + 1) + '. mısra...';
+            
             const counter = document.createElement('span');
             counter.className = 'hece-sayaci';
-            applyInputLogic(input, counter);
+            
             wrapper.appendChild(input);
             wrapper.appendChild(counter);
-            stanzaDiv.appendChild(wrapper);
+
+            const rhymeBadge = document.createElement('div');
+            rhymeBadge.className = 'kafiye-etiketi';
+
+            lineRow.appendChild(wrapper);
+            lineRow.appendChild(rhymeBadge);
+
+            applyInputLogic(input, counter);
+            
+            stanzaDiv.appendChild(lineRow);
+            
             if(text) input.oninput();
         });
+        
         mainEditor.appendChild(stanzaDiv);
+        updateAllPoemRhymes();
     }
 
     function compilePoem() {
@@ -200,7 +305,7 @@
             if (stanzaLines.length > 0) {
                 outputText += stanzaLines.join("\n") + "\n";
                 if (sIndex < stanzas.length - 1) {
-                    outputText += "\n"; // Dörtlükler arası boşluk
+                    outputText += "\n";
                 }
             }
         });
@@ -222,9 +327,7 @@
         document.getElementById('pasteModal').style.display = 'none';
     }
 
-// ... script içerisindeki ilgili fonksiyonları bununla değiştir:
-
-function processPastedPoem() {
+    function processPastedPoem() {
         let rawText = document.getElementById('pasteTextarea').value.trim();
         if (!rawText) {
             alert("Lütfen yapıştırılacak şiir metnini girin!");
@@ -235,7 +338,6 @@ function processPastedPoem() {
         let allLines = [];
         let allSyllableCounts = [];
 
-        // Tüm satırları temizle, boş olanları atla ve dolu mısraları sırasıyla topla
         lines.forEach(line => {
             let cleanedLine = line.replace(/&nbsp;/gi, '').replace(/\u00A0/g, '').trim();
             if (cleanedLine !== "") {
@@ -249,17 +351,15 @@ function processPastedPoem() {
             return;
         }
 
-        // Mutlak olarak mısraları 4'erli gruplara (dörtlüklere) ayır
         let stanzas = [];
         for (let i = 0; i < allLines.length; i += 4) {
             let chunk = allLines.slice(i, i + 4);
             while (chunk.length < 4) {
-                chunk.push(""); // Son dörtlük eksik kalırsa boş mısra ile tamamla
+                chunk.push("");
             }
             stanzas.push(chunk);
         }
 
-        // İstatistiksel hece sayısı (Mod - en sık geçen sayı)
         let counts = {};
         allSyllableCounts.forEach(c => counts[c] = (counts[c] || 0) + 1);
         let maxFreq = 0;
@@ -271,7 +371,6 @@ function processPastedPoem() {
             }
         }
 
-        // 1. Ölçü Seçimini Güncelle
         const meterSelect = document.getElementById('meterSelect');
         for (let i = 0; i < meterSelect.options.length; i++) {
             if (meterSelect.options[i].value == bestSyllableCount) {
@@ -280,7 +379,6 @@ function processPastedPoem() {
             }
         }
 
-        // 2. Editörü Doldur
         document.getElementById('mainEditor').innerHTML = "";
         stanzas.forEach(stanzaLines => {
             addStanza(stanzaLines);
@@ -293,9 +391,15 @@ function processPastedPoem() {
 
     function copyCompiledText() {
         const textarea = document.getElementById('compiledTextResult');
-        textarea.select();
-        document.execCommand('copy');
-        alert("Şiir panoya kopyalandı!");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                alert("Şiir panoya kopyalandı!");
+            });
+        } else {
+            textarea.select();
+            document.execCommand('copy');
+            alert("Şiir panoya kopyalandı!");
+        }
     }
 
     function savePoem() {
@@ -346,6 +450,7 @@ function processPastedPoem() {
 
             updateArchiveSelect();
             resetEditor();
+            select.value = "";
             alert("Şiir arşivden silindi.");
         }
     }
@@ -399,6 +504,9 @@ function processPastedPoem() {
                 input.className = 'mısra-input';
                 input.parentElement.querySelector('.hece-sayaci').innerText = "";
             });
+            document.querySelectorAll('.kafiye-etiketi').forEach(badge => {
+                badge.innerText = "";
+            });
         }
     }
 
@@ -412,6 +520,128 @@ function processPastedPoem() {
             addStanza();
         }
     });
+ 
+ 
+function filtreleTurkceKelimeler(arananKelimeler, hedefArama) {
+    // turkceKelimeler.js içindeki diziyi kontrol et
+    if (typeof turkceKelimeler === 'undefined' || !Array.isArray(turkceKelimeler)) {
+        console.error("turkceKelimeler dizisi bulunamadı! 'javascript/turkceKelimeler.js' dosyasının yüklendiğinden emin ol.");
+        return [];
+    }
+
+    var aranan = hedefArama ? hedefArama.trim().toLowerCase() : "";
+    
+    // Eğer bir arama kriteri verilmediyse tüm listeyi döndür
+    if (aranan === "") {
+        return turkceKelimeler;
+    }
+
+    // Dörtlük yazma aracındaki kafiye/hece eşleşmesine göre filtrele
+    var eslesenKelimeler = turkceKelimeler.filter(function(kelime) {
+        var k = kelime.toLowerCase();
+        return k.endsWith(aranan) || k.includes(aranan);
+    });
+
+    return eslesenKelimeler;
+} 
+
+window.kafiyeAraVeGoster = function() {
+    var inputElem = document.getElementById("kafiyeInput");
+    if (!inputElem) return;
+
+    var arananKelime = inputElem.value.trim().toLowerCase();
+    if (arananKelime === "") {
+        alert("Lütfen kafiye aranacak bir kelime girin.");
+        return;
+    }
+
+    // javascript/turkceKelimeler.js dosyasındaki dizinin kontrolü
+    if (typeof turkceKelimeler === "undefined" || !Array.isArray(turkceKelimeler)) {
+        alert("javascript/turkceKelimeler.js dosyası yüklenemedi veya 'turkceKelimeler' dizisi bulunamadı!");
+        return;
+    }
+
+    // Aranan kelimenin en az son 2 harfini esas al (Kelime 2 harften kısaysa tamamını al)
+    var kafiyeUzunluk = arananKelime.length >= 2 ? 2 : arananKelime.length;
+    var enKucukKalip = arananKelime.substring(arananKelime.length - kafiyeUzunluk);
+
+    // 1. İçinde boşluk olmayan ve sonu BİREBİR aynı harflerle biten kelimeleri filtrele
+    var eslesenler = turkceKelimeler.filter(function(kelime) {
+        if (!kelime) return false;
+        var kLower = kelime.toLowerCase();
+        
+        // İçinde boşluk olan kelime gruplarını pas geç
+        if (kLower.includes(" ")) return false;
+
+        // Kelimenin kendisini ele
+        if (kLower === arananKelime) return false;
+
+        // Birebir son harf uyumu kontrolü
+        return kLower.endsWith(enKucukKalip);
+    });
+
+    // 2. Sondan eşleşen gerçek harf sayısını hesaplayan fonksiyon
+    function eslesmePuaniHesapla(kelime) {
+        var kLower = kelime.toLowerCase();
+        var puan = 0;
+        var maxUyum = Math.min(arananKelime.length, kLower.length);
+
+        for (var i = 1; i <= maxUyum; i++) {
+            if (arananKelime[arananKelime.length - i] === kLower[kLower.length - i]) {
+                puan++;
+            } else {
+                break; // Sondan ilk uyuşmazlıkta puan artırmayı kes
+            }
+        }
+        return puan;
+    }
+
+    // 3. Sıralama: Önce kafiye puanı yüksek olana, puanlar eşitse uzun kelimeden kısa kelimeye doğru
+    eslesenler.sort(function(a, b) {
+        var puanA = eslesmePuaniHesapla(a);
+        var puanB = eslesmePuaniHesapla(b);
+
+        if (puanA !== puanB) {
+            return puanB - puanA; // Öncelik kafiye puanı yüksek olanda
+        } else {
+            return b.length - a.length; // Puan eşitse uzun kelime üstte yer alır
+        }
+    });
+
+    // 4. "_Sonuc" isimli yeni pencerede göster
+    var sonucPenceresi = window.open("", "_Sonuc", "width=600,height=700,scrollbars=yes,resizable=yes");
+    
+    if (sonucPenceresi) {
+        sonucPenceresi.document.open();
+        
+        var htmlIcerik = '<html><head><title>Kafiye Arama Sonuçları</title>';
+        htmlIcerik += '<meta http-equiv="Content-Type" content="text/html; charset=windows-1254">';
+        htmlIcerik += '<style>body{font-family:Arial,sans-serif; padding:15px; background-color:#fafafa;} h3{color:#333;} ol{line-height:1.6;} li{padding:2px 0;}</style>';
+        htmlIcerik += '</head><body>';
+        htmlIcerik += '<h3>"' + arananKelime + '" Kelimesi İçin Kafiye Sonuçları</h3>';
+        htmlIcerik += '<p><b>Bulunan Kelime Sayısı:</b> ' + eslesenler.length + '</p><hr>';
+
+        if (eslesenler.length > 0) {
+            htmlIcerik += '<ol>';
+            for (var i = 0; i < eslesenler.length; i++) {
+                htmlIcerik += '<li>' + eslesenler[i] + '</li>';
+            }
+            htmlIcerik += '</ol>';
+        } else {
+            htmlIcerik += '<p>Uygun kafiye bulunamadı.</p>';
+        }
+
+        htmlIcerik += '</body></html>';
+
+        sonucPenceresi.document.write(htmlIcerik);
+        sonucPenceresi.document.close();
+        sonucPenceresi.focus();
+    } else {
+        alert("Pop-up engelleyici yeni pencerenin açılmasını engelledi. Lütfen izin verin.");
+    }
+};
+ 
+
 </script>
 
 </body>
